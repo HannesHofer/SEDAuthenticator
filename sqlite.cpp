@@ -7,15 +7,6 @@
 #define BLOB 0
 #define TEXT 1
 
-static int callback(void *NotUsed, int argc, char **argv, char **azColName){
-	int i;
-	for(i=0; i<argc; i++){
-		printf("%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
-	}
-	printf("\n");
-	return 0;
-}
-
 int addPreparedStatement(sqlite3_stmt &stmt, int type, const std::string &value, const std::string &name)
 {
 	int index = sqlite3_bind_parameter_index(&stmt, name.c_str());
@@ -66,15 +57,14 @@ std::string getPassphraseFromKey(const std::string &database, const std::string 
 
 int addPassphraseKey(const std::string database, const std::string key, const std::string passphrase)
 {
-	sqlite3 *db;
-	int rc = sqlite3_open(database.c_str(), &db);
-	if (rc != SQLITE_OK) {
+	sqlite3 *db = NULL;
+	int rc = sqlite3_open_v2(database.c_str(), &db, SQLITE_OPEN_READWRITE, NULL);
+	if (rc != SQLITE_OK || db == NULL) {
 		// CREATE Database when not exists. Warn User
 		std::clog << "could not open " << database << ": "
 		          << sqlite3_errmsg(db) << std::endl;
 		std::clog << "creating new database " << database << std::endl;
-		rc = sqlite3_open_v2(database.c_str(), &db,
-							 SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL);
+		rc = sqlite3_open(database.c_str(), &db);
 		if (rc != SQLITE_OK) {
 			std::clog << "could not create " << database << ": " 
 			          << sqlite3_errmsg(db) << std::endl;
@@ -84,23 +74,23 @@ int addPassphraseKey(const std::string database, const std::string key, const st
 		char *zErrMsg = 0;
 		const char *sql =  "CREATE TABLE keymap("
 		                   "key BLOB NOT NULL,"
-				           "passphrase TEXT NOT NULL)";
+				           "passphrase TEXT NOT NULL);";
 		
 		rc = sqlite3_exec(db, sql, NULL, 0, &zErrMsg);
 		if( rc != SQLITE_OK ){
 			std::clog << "could not create table KEYMAP " << std::endl;
 			exit(-1);
 		}
+		sqlite3_close(db);
 	}
-
 	const char *query = "INSERT OR IGNORE INTO keymap(key, passphrase)"
-	                    " VALUES(:key, :passphrase)";
+	                    " VALUES(:k, :p)";
 	sqlite3_stmt *stmt = NULL;
 	int ret = sqlite3_prepare_v2(db, query, -1, &stmt, NULL);
 	
 	// Prepare & Fill statements
-	addPreparedStatement(*stmt, BLOB, key, "key");
-	addPreparedStatement(*stmt, TEXT, passphrase, "passphrase");
+	addPreparedStatement(*stmt, BLOB, key, ":k");
+	addPreparedStatement(*stmt, TEXT, passphrase, ":p");
 	
 	// EXECUTE Statement
 	while ((ret = sqlite3_step(stmt)) == SQLITE_BUSY)
